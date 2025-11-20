@@ -1,248 +1,207 @@
-Object Detection & Segmentation System Documentation
-Overview
-Sistem ini menggunakan model RFDETR (Recursive Feature Pyramid Detection Transformer) untuk melakukan object detection dan instance segmentation pada gambar. Model ini dapat mendeteksi objek dengan bounding box dan mask segmentation dengan akurasi tinggi.
+# RF-DETR Object Detection & Segmentation Pipeline
 
-Technical Specifications
-Model Architecture
-Model: RFDETRSegPreview (Recursive Feature Pyramid DETR dengan Segmentation)
+Dokumentasi Proyek
 
-Type: Transformer-based object detection dengan instance segmentation
+README ini disusun untuk memberikan penjelasan menyeluruh mengenai implementasi sistem deteksi dan segmentasi objek berbasis **RF-DETR (Region-Free DEtection TRansformer)**. Proyek ini mencakup proses pemuatan model, inferensi pada data gambar lokal, pengolahan hasil prediksi, hingga visualisasi menggunakan library **Supervision**.
 
-Input: RGB Images
+Tujuan dari proyek ini adalah menyediakan workflow inferensi yang stabil dan dapat direplikasi, terutama untuk kebutuhan seperti penghitungan objek (object counting), inspeksi visual, analisis kualitas produk, atau otomasi berbasis visi komputer.
 
-Output: Bounding boxes, confidence scores, dan segmentation masks
+---
 
-System Requirements
-python
-# Dependencies yang diperlukan
-Python 3.8+
-PyTorch 1.12+
-torchvision 0.13+
-supervision 0.10+
-Pillow (PIL)
-Code Implementation
-Import Libraries
-python
-import io
-from PIL import Image
+## 1. Latar Belakang Proyek
+
+Dalam berbagai kebutuhan industri, proses deteksi objek tidak hanya membutuhkan bounding box, tetapi juga segmentasi mask untuk akurasi yang lebih tinggi. Model RF-DETR dipilih karena:
+
+1. Arsitektur transformer yang efisien dalam inference.
+2. Kemampuan untuk memberikan **segmentation mask** dan **bounding box** bersamaan.
+3. Lebih robust terhadap skala objek dan kondisi pencahayaan.
+4. Dapat dipercepat dengan fungsi `optimize_for_inference()`.
+
+Proyek ini dirancang untuk:
+
+* Mengolah gambar dari folder lokal.
+* Menjalankan inference dengan threshold kepercayaan tertentu.
+* Menampilkan hasil anotasi secara visual.
+* Menghasilkan label otomatis berdasarkan dataset COCO.
+
+---
+
+## 2. Struktur Proyek
+
+Struktur dasar proyek adalah sebagai berikut:
+
+```
+project/
+│
+├── model/
+│   └── weights.pt                 # Bobot pretrained RF-DETR
+│
+├── scripts/
+│   └── infer.py                   # Script utama inferensi
+│
+├── data/
+│   └── samples/                   # Gambar-gambar uji
+│
+├── outputs/
+│   └── annotated/                 # Output gambar setelah anotasi
+│
+└── README.md
+```
+
+Pengguna dapat menyesuaikan struktur sesuai kebutuhan selama path menuju bobot model dan input image tetap benar.
+
+---
+
+## 3. Instalasi Dependencies
+
+Semua library yang diperlukan dapat dipasang melalui:
+
+```bash
+pip install rfdetr supervision pillow requests
+```
+
+Pastikan Python minimal versi 3.8.
+
+---
+
+## 4. Pipeline Kerja Sistem
+
+Berikut penjelasan pipeline inferensi yang digunakan dalam proyek ini:
+
+1. **Load Model RF-DETR**
+   Menggunakan `RFDETRSegPreview` dengan bobot pretrained dari direktori lokal.
+
+2. **Optimasi Model untuk Inference**
+   `model.optimize_for_inference()` bertujuan mengurangi overhead dan mempercepat prediksi.
+
+3. **Load Gambar Input**
+   Gambar di-load menggunakan PIL dari path lokal. Tidak ada preprocessing tambahan, karena RF-DETR menangani normalisasi internal.
+
+4. **Inferensi Deteksi dan Segmentasi**
+   Pemanggilan:
+
+   ```python
+   detections = model.predict(image, threshold=0.4)
+   ```
+
+   Menghasilkan:
+
+   * class ID
+   * bounding box
+   * segmentation mask
+   * confidence score
+
+5. **Generate Label**
+   Label dibentuk menggunakan mapping COCO:
+
+   Format:
+   `"class_name confidence"`
+
+6. **Anotasi Visual**
+   Library Supervision digunakan untuk menggambar:
+
+   * segmentation mask
+   * label box
+   * class name & confidence
+
+7. **Display Output**
+   Hasil anotasi divisualisasikan dengan `sv.plot_image()`.
+
+---
+
+## 5. Kode Lengkap (Script Inferensi)
+
+```python
 import supervision as sv
+from PIL import Image
 from rfdetr import RFDETRSegPreview
-Configuration Parameters
-python
-# Path konfigurasi
-MODEL_PATH = "model/weights.pt"                    # Path ke model weights
-IMAGE_PATH = "D:\\Adip\\Object Counting\\Cropped\\cropps\\IMG-20251010-WA0031_cage_wheel_ring_1.jpg"  # Path gambar input
-CLASS_NAME = "cage_wheel_ring"                     # Nama kelas objek yang dideteksi
+from rfdetr.util.coco_classes import COCO_CLASSES
 
-# Threshold konfigurasi
-THRESHOLD_CONF = 0.60      # Confidence threshold untuk deteksi
-THRESHOLD_NMS = 0.4        # Threshold untuk Non-Maximum Suppression
-MIN_MASK_AREA = 1000       # Area minimum mask (dalam pixels)
-Model Initialization
-python
-# Inisialisasi model
-model = RFDETRSegPreview(pretrain_weights=MODEL_PATH)
-
-# Optimasi model untuk inference
+# Load model
+model = RFDETRSegPreview(pretrain_weights='model/weights.pt')
 model.optimize_for_inference()
-Image Processing Pipeline
-python
-# Load gambar
-image = Image.open(IMAGE_PATH)
 
-# Deteksi objek
-detections = model.predict(image, threshold=THRESHOLD_CONF)
+# Load image
+url = r"D:\Adip\Object Counting\Cropped\crops\cage_wheel_ring_0.jpg"
+image = Image.open(url)
 
-# Apply Non-Maximum Suppression
-detections = detections.with_nms(threshold=THRESHOLD_NMS, class_agnostic=True)
+# Predict
+detections = model.predict(image, threshold=0.4)
 
-# Filter berdasarkan area mask minimum
-if len(detections) > 0 and hasattr(detections, "mask"):
-    mask_areas = [mask.sum() for mask in detections.mask]
-    keep_indices = [i for i, area in enumerate(mask_areas) if area > MIN_MASK_AREA]
-    detections = detections[keep_indices]
-
-# Set class ID dan label
-detections.class_id = [0] * len(detections)
-CUSTOM_CLASSES = [CLASS_NAME]
-
-# Generate labels untuk annotation
+# Generate labels
 labels = [
-    f"{CUSTOM_CLASSES[class_id]} {confidence:.2f}"
-    for class_id, confidence in zip(detections.class_id, detections.confidence)
+    f"{COCO_CLASSES[class_id]} {confidence:.2f}"
+    for class_id, confidence
+    in zip(detections.class_id, detections.confidence)
 ]
-Visualization and Annotation
-python
-# Buat annotated image
+
+# Annotate output
 annotated_image = image.copy()
-
-# Annotasi mask segmentation
 annotated_image = sv.MaskAnnotator().annotate(annotated_image, detections)
-
-# Annotasi label dengan confidence score
 annotated_image = sv.LabelAnnotator().annotate(annotated_image, detections, labels)
 
-# Tampilkan hasil
+# Display
 sv.plot_image(annotated_image)
-Results Analysis
-python
-# Analisis hasil deteksi
-object_count = len(detections)
-total_mask_area = sum(mask.sum() for mask in detections.mask) if len(detections) > 0 else 0
+```
 
-# Print hasil
-print(f"Detected objects: {object_count}")
-print(f"Total segmented mask area: {total_mask_area}")
-print(f"Average mask area per object: {total_mask_area / object_count if object_count > 0 else 0:.2f}")
-Parameter Tuning Guide
-Confidence Threshold (THRESHOLD_CONF)
-Range: 0.0 - 1.0
+---
 
-Rekomendasi: 0.50 - 0.75
+## 6. Penjelasan Teknis Tambahan
 
-Efek:
+### a. Threshold Confidence
 
-Nilai tinggi: Lebih sedikit deteksi, precision lebih tinggi
+Nilai threshold 0.4 dipilih agar model menampilkan objek dengan tingkat kepercayaan menengah. Threshold dapat dinaikkan untuk mengurangi false positive atau diturunkan untuk mendeteksi objek kecil.
 
-Nilai rendah: Lebih banyak deteksi, recall lebih tinggi
+### b. Segmentasi Mask
 
-NMS Threshold (THRESHOLD_NMS)
-Range: 0.0 - 1.0
+Mask dihasilkan dalam format polygon atau binary map, kemudian ditumpuk di atas gambar asli oleh Supervision.
 
-Rekomendasi: 0.3 - 0.5
+### c. Kompatibilitas COCO Classes
 
-Efek: Mengurangi overlapping detections
+RF-DETR bawaan menggunakan mapping 80 kelas COCO. Jika model Anda adalah model custom training, mapping dapat diganti sesuai label dataset pelatihan.
 
-Minimum Mask Area (MIN_MASK_AREA)
-Unit: Pixels
+### d. Kinerja Inference
 
-Rekomendasi: 500 - 2000 (tergantung resolusi gambar)
+`optimize_for_inference()` menyederhanakan pipeline internal:
 
-Efek: Filter deteksi berdasarkan ukuran objek
+* mempercepat eksekusi
+* menghapus komponen yang hanya dibutuhkan saat training
+* mengurangi penggunaan memori
 
-Output Format
-Detections Object
-Struktur output dari model.predict():
+---
 
-python
-detections = {
-    'xyxy': array([[x1, y1, x2, y2], ...]),  # Bounding boxes
-    'confidence': array([0.95, 0.87, ...]),   # Confidence scores
-    'class_id': array([0, 0, ...]),           # Class IDs
-    'mask': array([mask1, mask2, ...])        # Segmentation masks
-}
-Metrics Output
-Object Count: Jumlah objek yang terdeteksi
+## 7. Pengembangan Lanjutan
 
-Total Mask Area: Total area semua mask (pixels)
+Proyek ini dapat diperluas ke beberapa arah:
 
-Average Mask Area: Rata-rata area per objek (pixels)
+1. **Object Counting Otomatis**
+   Menghitung jumlah objek per kelas dari `detections.class_id`.
 
-Performance Optimization
-Model Optimization
-python
-# Optimasi untuk inference
-model.optimize_for_inference()
+2. **Export Hasil ke File**
+   Menyimpan output ke direktori `/outputs/annotated`.
 
-# Untuk GPU acceleration (jika tersedia)
-model.to('cuda')  # Pindah model ke GPU
-Memory Management
-python
-# Clear cache setelah inference
-import torch
-torch.cuda.empty_cache()  # Jika menggunakan GPU
+3. **Batch Processing**
+   Memproses satu folder secara otomatis.
 
-# Batch processing untuk multiple images
-def process_batch(image_paths):
-    results = []
-    for image_path in image_paths:
-        image = Image.open(image_path)
-        detections = model.predict(image, threshold=THRESHOLD_CONF)
-        results.append(detections)
-    return results
-Error Handling
-Common Issues and Solutions
-python
-try:
-    # Load model
-    model = RFDETRSegPreview(pretrain_weights=MODEL_PATH)
-except FileNotFoundError:
-    print(f"Model weights not found at {MODEL_PATH}")
-    exit(1)
+4. **Integrasi Kamera Real-Time**
+   Menjalankan inference frame-by-frame dari webcam atau CCTV.
 
-try:
-    # Load image
-    image = Image.open(IMAGE_PATH)
-except FileNotFoundError:
-    print(f"Image not found at {IMAGE_PATH}")
-    exit(1)
+5. **Training Ulang RF-DETR**
+   Untuk dataset custom di lingkungan industri.
 
-# Check jika detections ada
-if len(detections) == 0:
-    print("No objects detected. Adjust threshold parameters.")
-Usage Examples
-Basic Usage
-python
-# Single image processing
-from object_detection_system import ObjectDetectionSystem
+---
 
-detector = ObjectDetectionSystem(
-    model_path="model/weights.pt",
-    class_name="cage_wheel_ring",
-    confidence_threshold=0.60
-)
+## 8. Lisensi
 
-results = detector.detect("path/to/image.jpg")
-detector.visualize_results()
-Batch Processing
-python
-# Multiple images
-image_paths = [
-    "image1.jpg",
-    "image2.jpg", 
-    "image3.jpg"
-]
+Penggunaan RF-DETR dan library terkait mengikuti lisensi resmi masing-masing paket. Proyek ini dapat dikembangkan bebas sepanjang mengikuti aturan library upstream.
 
-for image_path in image_paths:
-    detections = model.predict(Image.open(image_path), threshold=THRESHOLD_CONF)
-    print(f"Detected {len(detections)} objects in {image_path}")
-Deployment Considerations
-Production Requirements
-Memory: Minimum 4GB RAM (8GB recommended)
+---
 
-Storage: 2GB untuk model dan dependencies
+Jika Anda ingin, saya bisa menambahkan:
 
-GPU: Optional, tetapi mempercepat inference 5-10x
+* Flowchart arsitektur pipeline
+* Contoh hasil visual inferensi
+* Versi README dalam bahasa Inggris
+* Penjelasan cara melakukan object tracking dengan Supervision
 
-Scalability
-python
-# Multi-threading untuk high-throughput
-from concurrent.futures import ThreadPoolExecutor
-
-def process_image(image_path):
-    image = Image.open(image_path)
-    return model.predict(image, threshold=THRESHOLD_CONF)
-
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(process_image, image_paths))
-Maintenance and Updates
-Model Updates
-Periodically retrain model dengan data baru
-
-Monitor performance metrics
-
-Update threshold parameters berdasarkan kebutuhan
-
-Performance Monitoring
-python
-# Logging untuk monitoring
-import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Log detection results
-logger.info(f"Detection completed: {len(detections)} objects found")
-logger.info(f"Average confidence: {detections.confidence.mean():.3f}")
-Dokumentasi ini memberikan panduan lengkap untuk menggunakan sistem object detection dan segmentation berdasarkan kode yang diberikan. Sistem ini cocok untuk aplikasi industrial inspection, quality control, dan automated object counting.
-
+Cukup beri instruksi.
